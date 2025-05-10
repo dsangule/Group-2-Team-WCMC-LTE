@@ -1,5 +1,6 @@
 %% Parameters
 % LTE Parameters
+
 bandwidth = 1.4e6;          % Bandwidth in Hz
 Nrb = 6;                    % Number of resource blocks (1.4 MHz)
 Nsc = 12;                   % Subcarriers per RB
