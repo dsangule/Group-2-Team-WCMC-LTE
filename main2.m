@@ -112,7 +112,7 @@ for sym = 1:numSyms
 end
 cfoEst = angle(cfoCorr) / (2 * pi * Nfft / Fs);
 t = (0:length(rxFrame)-1)' / Fs;
-rxFrame = rxFrame .* exp(-1i * 2 * pi * cfoEst * t);
+rxFrame = rxFrame .* exp(-1i * 2 * pi * cfoEst * t); % CFO correction
 
 %% PSS Detection (Time-Domain)
 correlationLength = length(rxFrame) - length(pssTimeCP) + 1;
@@ -346,189 +346,34 @@ xlabel('OFDM Symbol');
 ylabel('Subcarrier');
 zlabel('Magnitude');
 
-%% performance Metrics to Measure
-% Parameters for simulation
-snrRange = -10:2:30; % Range of SNR values (in dB)
-numFrames = 100; % Number of frames to simulate
-numSymbolsPerFrame = 100; % Number of symbols per frame
-subframeDuration = 1e-3; % Duration of a subframe in seconds
-totalBlocks = zeros(1, length(snrRange));
-pssDetectionCount = zeros(1, length(snrRange));
-sssDetectionCount = zeros(1, length(snrRange));
-cellIDAccuracy = zeros(1, length(snrRange));
-timingError = zeros(1, length(snrRange));
-mibSuccessCount = zeros(1, length(snrRange));
-pdcchSuccessCount = zeros(1, length(snrRange));
-pdschSuccessCount = zeros(1, length(snrRange));
-throughputBits = zeros(1, length(snrRange));
+%% PBCH CRC Checking
+% CRC Polynomial (CRC-24C)
+crcPoly = [1 0 0 1 1 1 0 1 1 1];  % CRC-24C (standard LTE polynomial)
 
-% Loop over SNR range
-for snrIdx = 1:length(snrRange)
-    snr = snrRange(snrIdx);
+% Check CRC of MIB bits (first 24 bits)
+mibCRCValid = checkCRC(mibBits, crcPoly);
+
+if mibCRCValid
+    fprintf('PBCH CRC Check Passed: MIB is valid.\n');
+else
+    fprintf('PBCH CRC Check Failed: MIB is invalid.\n');
+end
+
+function isValid = checkCRC(bits, crcPoly)
+    % Ensure bits are row vectors
+    bits = bits(:).';  % Ensure bits is a row vector
     
-    % Simulate frames
-    for frameIdx = 1:numFrames
-        % Simulate transmission (e.g., PSS/SSS detection, cell ID detection, etc.)
-        % Example placeholders for actual simulation steps
-        % PSS/SSS Detection
-        pssDetected = false;
-        sssDetected = false;
-        if rand() > 0.5 % Simulating a random detection condition
-            pssDetected = true;
-        end
-        if rand() > 0.5 % Simulating a random detection condition
-            sssDetected = true;
-        end
-
-        pssDetectionCount(snrIdx) = pssDetectionCount(snrIdx) + pssDetected;
-        sssDetectionCount(snrIdx) = sssDetectionCount(snrIdx) + sssDetected;
-
-        % Cell ID detection accuracy
-        txCellID = randi([0, 1000]); % Example cell ID
-        rxCellID = txCellID; % Assume detection is accurate for this example
-        correctCellIDDetection = (rxCellID == txCellID);
-        cellIDAccuracy(snrIdx) = cellIDAccuracy(snrIdx) + correctCellIDDetection;
-
-        % Timing synchronization error
-        estimatedOffset = randn() * 10; % Random offset
-        trueOffset = 0; % Assume perfect timing for simplicity
-        syncError = abs(estimatedOffset - trueOffset);
-        timingError(snrIdx) = timingError(snrIdx) + syncError;
-
-        % MIB and PBCH decoding success rate
-        mibCRC = randi([0, 1]); % Simulating MIB CRC result (0 = success, 1 = failure)
-        mibSuccess = mibCRC == 0;
-        mibSuccessCount(snrIdx) = mibSuccessCount(snrIdx) + mibSuccess;
-
-        % PDCCH blind decoding success probability
-        dci = rand() > 0.5; % Simulating a random DCI detection
-        pdcchSuccess = ~isempty(dci);
-        pdcchSuccessCount(snrIdx) = pdcchSuccessCount(snrIdx) + pdcchSuccess;
-
-        % Block Error Rate (BLER) for PDSCH
-        transportBlockCRC = randi([0, 1]); % Simulating CRC check result (0 = success, 1 = failure)
-        if transportBlockCRC == 0
-            pdschSuccessCount(snrIdx) = pdschSuccessCount(snrIdx) + 1;
-        end
-        totalBlocks(snrIdx) = totalBlocks(snrIdx) + 1;
-
-        % Throughput measurements (in bits per second)
-        decodedBits = randi([0, 1], [1, 1000]); % Random decoded bits
-        if transportBlockCRC == 0
-            throughputBits(snrIdx) = throughputBits(snrIdx) + numel(decodedBits);
+    % Perform CRC checking using the specified polynomial
+    numBits = length(bits);
+    crc = [bits, zeros(1, length(crcPoly) - 1)]; % Append zeros to bits for CRC calculation
+    crcLength = length(crc);
+    
+    for i = 1:numBits  % Perform the division process
+        if crc(i) == 1
+            crc(i:i+length(crcPoly)-1) = mod(crc(i:i+length(crcPoly)-1) + crcPoly, 2);
         end
     end
+    
+    % The CRC is valid if the remainder is zero
+    isValid = all(crc(end-length(crcPoly)+2:end) == 0);  % Check remainder for validity
 end
-
-% Normalize all metrics
-pssDetectionProb = pssDetectionCount / numFrames;
-sssDetectionProb = sssDetectionCount / numFrames;
-cellIDAccuracy = cellIDAccuracy / numFrames;
-timingError = timingError / numFrames;
-mibSuccessRate = mibSuccessCount / numFrames;
-pdcchSuccessRate = pdcchSuccessCount / numFrames;
-bler = 1 - (pdschSuccessCount ./ totalBlocks);
-throughput = throughputBits / (numFrames * subframeDuration);  % bits/sec
-
-% Plotting Results
-
-% PSS/SSS Detection vs SNR
-figure;
-plot(snrRange, pssDetectionProb, '-o'); title('PSS Detection vs SNR'); xlabel('SNR (dB)'); ylabel('Probability');
-
-% SSS Detection vs SNR
-figure;
-plot(snrRange, sssDetectionProb, '-o'); title('SSS Detection vs SNR'); xlabel('SNR (dB)'); ylabel('Probability');
-
-% Cell ID Accuracy vs SNR
-figure;
-plot(snrRange, cellIDAccuracy, '-o'); title('Cell ID Accuracy vs SNR'); xlabel('SNR (dB)'); ylabel('Accuracy');
-
-% Timing Synchronization Error vs SNR
-figure;
-plot(snrRange, timingError, '-o'); title('Timing Error vs SNR'); xlabel('SNR (dB)'); ylabel('Synchronization Error (ms)');
-
-% MIB Success Rate vs SNR
-figure;
-plot(snrRange, mibSuccessRate, '-o'); title('MIB Success Rate vs SNR'); xlabel('SNR (dB)'); ylabel('Success Rate');
-
-% PDCCH Success Rate vs SNR
-figure;
-plot(snrRange, pdcchSuccessRate, '-o'); title('PDCCH Success Rate vs SNR'); xlabel('SNR (dB)'); ylabel('Success Rate');
-
-% Block Error Rate (BLER) for PDSCH vs SNR
-figure;
-plot(snrRange, bler, '-o'); title('BLER for PDSCH vs SNR'); xlabel('SNR (dB)'); ylabel('Block Error Rate');
-
-% Throughput vs SNR
-figure;
-plot(snrRange, throughput, '-o'); title('Throughput vs SNR'); xlabel('SNR (dB)'); ylabel('Throughput (bits/sec)');
-
-%%Assess sensitivity to frequency offset errors
-
-% Frequency Offset Sensitivity Analysis
-freqOffsets = -500:100:500; % Frequency offsets in Hz
-snrForFO = 10; % Fixed SNR for testing FO sensitivity
-numTrials = 100;
-
-pssDetectFO = zeros(1, length(freqOffsets));
-sssDetectFO = zeros(1, length(freqOffsets));
-pbchSuccessFO = zeros(1, length(freqOffsets));
-
-for fIdx = 1:length(freqOffsets)
-    fOffset = freqOffsets(fIdx);
-    for trial = 1:numTrials
-        % Generate LTE waveform
-        enb = lteRMCDL('R.1');  % Simple LTE config
-        [txWaveform, ~] = lteRMCDLTool(enb, [1; 0; 0; 1]);  % Transmit random bits
-        
-        % Add frequency offset
-        fs = 15.36e6; % Sampling rate for 10 MHz LTE
-        t = (0:length(txWaveform)-1)' / fs;
-        rxWaveform = txWaveform .* exp(1j*2*pi*fOffset*t);  % Apply frequency offset
-
-        % Add AWGN
-        rxWaveform = awgn(rxWaveform, snrForFO, 'measured');
-
-        % Perform PSS detection
-        pssIdx = lteDLFrameOffset(enb, rxWaveform);
-        if ~isempty(pssIdx)
-            pssDetectFO(fIdx) = pssDetectFO(fIdx) + 1;
-        end
-
-        % Perform SSS detection
-        rxGrid = lteOFDMDemodulate(enb, rxWaveform);
-        [~, nCellID] = lteCellSearch(enb, rxWaveform);
-        if ~isempty(nCellID)
-            sssDetectFO(fIdx) = sssDetectFO(fIdx) + 1;
-        end
-
-        % PBCH decoding
-        enb.NCellID = nCellID;
-        enb.NSubframe = 0;
-        enb.CellRefP = 1;
-
-        rxGrid = lteOFDMDemodulate(enb, rxWaveform);
-        [pbchBits, pbchSymbols] = ltePBCHDecode(enb, rxGrid);
-        [~, crc] = ltePBCHDecode(enb, rxGrid);
-        if crc == 0
-            pbchSuccessFO(fIdx) = pbchSuccessFO(fIdx) + 1;
-        end
-    end
-end
-
-% Normalize
-pssDetectFO = pssDetectFO / numTrials;
-sssDetectFO = sssDetectFO / numTrials;
-pbchSuccessFO = pbchSuccessFO / numTrials;
-
-% Plot results
-figure;
-plot(freqOffsets, pssDetectFO, '-o'); hold on;
-plot(freqOffsets, sssDetectFO, '-s');
-plot(freqOffsets, pbchSuccessFO, '-^');
-grid on;
-xlabel('Frequency Offset (Hz)');
-ylabel('Detection Success Rate');
-legend('PSS Detection', 'SSS Detection', 'PBCH Decoding');
-title('Frequency Offset Sensitivity');
